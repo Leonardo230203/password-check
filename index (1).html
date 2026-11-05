@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'sha256-2f7UNtWWswbWnL/v8ZXn8KlpaCc0+m3e974iSSsjA0k='; script-src 'sha256-gjE9DQFstrB8kp/Scved2OKtLfLy0jCT2qCHjw1l3kc='; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Password Check: how long would it take to crack?</title>
+<style>
+:root{
+  --bg:#e8edf2; --surface:#f8fafc; --ink:#14213d; --muted:#4a5a73; --line:#c3cedb;
+  --bad:#b42318; --weak:#b45309; --ok:#1d6f8a; --good:#0f766e;
+  --meter:var(--line);
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#0f1826; --surface:#172338; --ink:#e6edf7; --muted:#9fb0c8; --line:#2c3e5a;
+    --bad:#ff8a80; --weak:#f5b25c; --ok:#6cc4e0; --good:#5fd3c3;}
+}
+*{box-sizing:border-box}
+html{font-size:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:46rem;margin:0 auto;padding:2rem 1.25rem 3rem}
+h1{font:700 clamp(1.9rem,5vw,2.8rem)/1.1 Georgia,"Iowan Old Style",serif;margin:0 0 .5rem;letter-spacing:-.01em}
+.lede{color:var(--muted);margin:0 0 1.75rem;max-width:38rem}
+.field{display:flex;gap:.5rem}
+input[type=password],input[type=text]{flex:1;min-width:0;font:1.15rem/1.2 ui-monospace,Menlo,Consolas,monospace;
+  padding:.85rem 1rem;border:2px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+button{font:inherit;font-weight:600;padding:.7rem 1rem;border-radius:6px;border:2px solid var(--ink);
+  background:transparent;color:var(--ink);cursor:pointer}
+button:hover{background:var(--ink);color:var(--bg)}
+:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.privacy{font-size:.9rem;color:var(--muted);margin:.6rem 0 0}
+.result{margin-top:2rem;padding:1.5rem;background:var(--surface);border-left:8px solid var(--meter);border-radius:0 6px 6px 0}
+.verdict{margin:0;font-weight:700;color:var(--meter)}
+.time{font:700 clamp(2.2rem,8vw,4rem)/1.05 Georgia,serif;margin:.2rem 0 .1rem;overflow-wrap:anywhere}
+.sub{margin:0;color:var(--muted)}
+.bar{display:flex;gap:4px;margin:1.25rem 0 0}
+.bar span{flex:1;height:8px;background:var(--line);border-radius:2px}
+.bar span.on{background:var(--meter)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:1.5rem;margin-top:1.75rem}
+h2{font:700 1.15rem/1.3 Georgia,serif;margin:0 0 .6rem}
+ul{list-style:none;margin:0;padding:0}
+li{padding:.3rem 0 .3rem 1.6rem;position:relative;border-bottom:1px solid var(--line)}
+li::before{content:"";position:absolute;left:0;top:.7rem;width:.8rem;height:.8rem;border-radius:50%;border:2px solid var(--line)}
+li.pass::before{background:var(--good);border-color:var(--good)}
+li.fail::before{background:var(--bad);border-color:var(--bad)}
+li .why{display:block;font-size:.85rem;color:var(--muted)}
+.gen{margin-top:2.25rem;padding-top:1.5rem;border-top:2px solid var(--line)}
+.gen output{display:block;margin:.75rem 0;font:1.1rem ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;min-height:1.6rem}
+.note{margin-top:2rem;font-size:.85rem;color:var(--muted)}
+@media (max-width:30rem){.field{flex-direction:column}}
+@media (prefers-reduced-motion:no-preference){.result{transition:border-color .2s}}
+</style>
+</head>
+<body>
+<main>
+  <h1>How long would a password last?</h1>
+  <p class="lede">Type a password to see how fast an attacker could guess it, and which habits make it easier. Nothing you type leaves this page.</p>
+
+  <label for="pw" class="sub">Password to test (use a similar one, not your real one)</label>
+  <div class="field">
+    <input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128">
+    <button id="toggle" type="button" aria-pressed="false">Show</button>
+  </div>
+  <p class="privacy">Runs only in your browser. No network requests, no cookies, no storage.</p>
+
+  <section class="result" id="result" aria-live="polite" hidden>
+    <p class="verdict" id="verdict"></p>
+    <p class="time" id="time"></p>
+    <p class="sub" id="sub"></p>
+    <div class="bar" id="bar" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <div class="grid">
+      <div><h2>What we checked</h2><ul id="checks"></ul></div>
+      <div><h2>How to improve it</h2><ul id="tips"></ul></div>
+    </div>
+  </section>
+
+  <section class="gen">
+    <h2>Need a strong one?</h2>
+    <p class="sub">This uses your browser's secure random generator.</p>
+    <output id="genout" aria-live="polite"></output>
+    <button id="gen" type="button">Generate password</button>
+    <button id="copy" type="button">Copy</button>
+  </section>
+
+  <p class="note">Estimates assume an attacker who has stolen a hashed password database and tries 10 billion guesses per second (a fast hash on a GPU rig). Real results vary with the hashing method. The check uses a short list of common passwords, not a full dictionary, so it can overestimate passwords built from ordinary words. Treat the result as a learning aid, not a guarantee. A copied password is cleared from the clipboard after 30 seconds when the browser allows it.</p>
+</main>
+
+<script>
+(function(){
+"use strict";
+var COMMON=("password 123456 12345678 123456789 qwerty abc123 letmein monkey dragon 111111 iloveyou admin welcome login "+
+"princess football baseball master sunshine shadow superman michael trustno1 passw0rd 1234567 12345 qwerty123 "+
+"1q2w3e4r zaq12wsx password1 starwars hello freedom whatever batman mustang access flower hottie lovely "+
+"computer cheese soccer charlie jordan summer secret asdfgh asdfghjkl qazwsx 000000 654321 987654321 "+
+"666666 696969 jennifer hunter buster thomas robert ginger pepper zxcvbnm cookie ashley nicole biteme").split(" ");
+var ROWS=["qwertyuiop","asdfghjkl","zxcvbnm","1234567890"];
+var $=function(id){return document.getElementById(id)};
+var pw=$("pw");
+try{ if(window.top!==window.self){ document.documentElement.style.display="none"; } }catch(e){ document.documentElement.style.display="none"; }
+window.addEventListener("pagehide",function(){pw.value="";$("genout").textContent=""});
+
+function unleet(s){
+  var m={"@":"a","4":"a","3":"e","1":"i","!":"i","0":"o","$":"s","5":"s","7":"t"};
+  return s.toLowerCase().replace(/[@43!1015$7]/g,function(c){return m[c]||c});
+}
+function hasSequence(s){
+  var t=s.toLowerCase(),i,run;
+  for(i=0;i<=t.length-4;i++){
+    var a=t.charCodeAt(i),b=t.charCodeAt(i+1),c=t.charCodeAt(i+2),d=t.charCodeAt(i+3);
+    if((b-a===1&&c-b===1&&d-c===1)||(a-b===1&&b-c===1&&c-d===1))return true;
+  }
+  for(i=0;i<ROWS.length;i++){
+    var row=ROWS[i],rev=row.split("").reverse().join("");
+    for(run=0;run<=row.length-4;run++){
+      if(t.indexOf(row.substr(run,4))>-1||t.indexOf(rev.substr(run,4))>-1)return true;
+    }
+  }
+  return false;
+}
+function analyze(p){
+  var lower=/[a-z]/.test(p),upper=/[A-Z]/.test(p),digit=/[0-9]/.test(p),symbol=/[^A-Za-z0-9]/.test(p);
+  var pool=(lower?26:0)+(upper?26:0)+(digit?10:0)+(symbol?33:0);
+  var norm=unleet(p);
+  var common=COMMON.some(function(w){return norm===w||norm.replace(/[0-9]+$/,"")===w});
+  var contains=COMMON.some(function(w){return w.length>=5&&norm.indexOf(w)>-1});
+  var repeats=/(.)\1{2,}/.test(p)||/^(.{1,3})\1+$/.test(p);
+  var seq=hasSequence(p);
+  var year=/(19|20)\d{2}/.test(p);
+  var entropy=p.length*Math.log(Math.max(pool,1))/Math.LN2;
+  var wm=/^([A-Z]?[a-z]+)[0-9!@#$%^&*]*$/.exec(p);
+  var wordSuffix=!!(wm&&wm[1].length<=12);
+  if(wordSuffix)entropy=Math.min(entropy,36);
+  if(repeats)entropy*=0.6;
+  if(seq)entropy*=0.75;
+  if(contains)entropy=Math.min(entropy,22);
+  if(common)entropy=Math.min(entropy,10);
+  return {wordSuffix:wordSuffix,len:p.length,lower:lower,upper:upper,digit:digit,symbol:symbol,common:common||contains,
+    repeats:repeats,seq:seq,year:year,entropy:entropy};
+}
+function fmt(sec){
+  if(sec<1)return "instantly";
+  var u=[["second",1],["minute",60],["hour",3600],["day",86400],["year",31557600],
+    ["thousand years",31557600e3],["million years",31557600e6],["billion years",31557600e9]];
+  var best=u[0];
+  for(var i=0;i<u.length;i++){if(sec>=u[i][1])best=u[i]}
+  if(sec>=31557600e12)return "trillions of years or more";
+  var n=Math.floor(sec/best[1]);
+  var name=best[0];
+  if(n!==1&&name.indexOf(" ")===-1)name+="s";
+  return n.toLocaleString("en-US")+" "+name;
+}
+function level(sec){
+  if(sec<3600)return 0;
+  if(sec<86400*365)return 1;
+  if(sec<31557600e3)return 2;
+  return 3;
+}
+var LABELS=[["Very weak","--bad"],["Weak","--weak"],["Good","--ok"],["Strong","--good"]];
+
+function fill(id,items){
+  var ul=$(id);
+  while(ul.firstChild)ul.removeChild(ul.firstChild);
+  items.forEach(function(it){
+    var li=document.createElement("li");
+    if(it.pass===true)li.className="pass";
+    if(it.pass===false)li.className="fail";
+    li.textContent=it.text;
+    if(it.why){var s=document.createElement("span");s.className="why";s.textContent=it.why;li.appendChild(s)}
+    ul.appendChild(li);
+  });
+}
+function render(){
+  var p=pw.value,box=$("result");
+  if(!p){box.hidden=true;return}
+  box.hidden=false;
+  var a=analyze(p);
+  var guesses=Math.pow(2,a.entropy)/2;
+  var offline=guesses/1e10,online=guesses/100;
+  var lv=level(offline);
+  if(a.len<12&&lv>2)lv=2;
+  var L=LABELS[lv];
+  box.style.setProperty("--meter","var("+L[1]+")");
+  $("verdict").textContent=L[0];
+  $("time").textContent=fmt(offline);
+  $("sub").textContent="to crack offline. Against a website that limits attempts (100 per second): "+fmt(online)+".";
+  var spans=$("bar").children;
+  for(var i=0;i<spans.length;i++)spans[i].className=i<=lv?"on":"";
+
+  fill("checks",[
+    {pass:a.len>=12,text:"At least 12 characters ("+a.len+")"},
+    {pass:a.lower&&a.upper,text:"Uses upper and lower case"},
+    {pass:a.digit,text:"Includes a number"},
+    {pass:a.symbol,text:"Includes a symbol"},
+    {pass:!a.common,text:"Not a common password",why:a.common?"Attackers try lists of leaked passwords first, even with swaps like a to @.":""},
+    {pass:!a.repeats,text:"No repeated characters or blocks"},
+    {pass:!a.seq,text:"No sequences like abcd, 1234 or qwer"}
+  ]);
+  var tips=[];
+  if(a.len<12)tips.push({text:"Make it longer. Each extra character multiplies the guesses needed."});
+  if(a.common)tips.push({text:"Avoid common words and predictable swaps. Pick something unrelated to your life."});
+  if(a.repeats||a.seq)tips.push({text:"Remove patterns like aaa, abab, 1234 or qwerty."});
+  if(a.wordSuffix)tips.push({text:"A single word plus numbers or symbols at the end is a very common pattern. Use several unrelated words or random characters."});
+  if(a.year)tips.push({text:"Years such as birth years are among the first things guessed."});
+  if(!(a.lower&&a.upper&&a.digit&&a.symbol)&&a.len<16)tips.push({text:"Mix lowercase, uppercase, numbers and symbols, or use a long passphrase."});
+  if(!tips.length)tips.push({text:"Looks solid. Use a different password for every account and store it in a password manager."});
+  fill("tips",tips);
+}
+
+function randInt(max){
+  var lim=Math.floor(4294967296/max)*max,buf=new Uint32Array(1);
+  do{crypto.getRandomValues(buf)}while(buf[0]>=lim);
+  return buf[0]%max;
+}
+function generate(){
+  var sets=["abcdefghijkmnopqrstuvwxyz","ABCDEFGHJKLMNPQRSTUVWXYZ","23456789","!@#$%^&*-_=+?"];
+  var all=sets.join(""),out=[],i;
+  sets.forEach(function(s){out.push(s.charAt(randInt(s.length)))});
+  while(out.length<18)out.push(all.charAt(randInt(all.length)));
+  for(i=out.length-1;i>0;i--){var j=randInt(i+1),t=out[i];out[i]=out[j];out[j]=t}
+  $("genout").textContent=out.join("");
+}
+
+pw.addEventListener("input",render);
+$("toggle").addEventListener("click",function(){
+  var show=pw.type==="password";
+  pw.type=show?"text":"password";
+  this.textContent=show?"Hide":"Show";
+  this.setAttribute("aria-pressed",String(show));
+});
+$("gen").addEventListener("click",generate);
+function flash(btn,msg){
+  btn.textContent=msg;setTimeout(function(){btn.textContent="Copy"},1800);
+}
+function legacyCopy(t){
+  var ta=document.createElement("textarea");
+  ta.value=t;ta.setAttribute("readonly","");
+  ta.style.cssText="position:fixed;top:0;left:0;opacity:0";
+  document.body.appendChild(ta);ta.select();
+  var ok=false;
+  try{ok=document.execCommand("copy")}catch(e){}
+  document.body.removeChild(ta);
+  return ok;
+}
+$("copy").addEventListener("click",function(){
+  var t=$("genout").textContent,btn=this;
+  if(!t){flash(btn,"Generate first");return}
+  function fallback(){
+    if(legacyCopy(t)){flash(btn,"Copied");return}
+    var r=document.createRange();r.selectNodeContents($("genout"));
+    var s=window.getSelection();s.removeAllRanges();s.addRange(r);
+    flash(btn,"Press Ctrl+C");
+  }
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(t).then(function(){
+      flash(btn,"Copied");
+      setTimeout(function(){navigator.clipboard.writeText("").catch(function(){})},30000);
+    }).catch(fallback);
+  }else{fallback()}
+});
+})();
+</script>
+</body>
+</html>
